@@ -1,0 +1,135 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+# ssh-keygen -t rsa -b 4096 -C "ansible"
+
+$os_packages_update = <<SCRIPT
+#!/bin/bash
+  echo "Updating OS packages..."
+  apt update && apt upgrade -y 
+SCRIPT
+
+$docker_install = <<SCRIPT
+#!/bin/bash
+    echo "Installing Docker..."
+    apt install docker.io -y
+SCRIPT
+
+$user_setup = <<SCRIPT
+#!/bin/bash
+function create_user {
+  USER_EXISTS=0
+  USERS=`getent passwd | cut -d":" -f1`
+  
+  for USER in $USERS;
+  do
+    if [[ $1 == $USER ]]; then
+      echo "$1 user exists"
+      USER_EXISTS=1
+    fi
+  done
+  if [[ $USER_EXISTS -eq 0 ]]; then
+    echo "Creating user: $1"
+    adduser --disabled-password --gecos "" $1
+  fi
+}
+create_user "jenkins"
+SCRIPT
+
+$jenkins_setup_war_package = <<SCRIPT
+#!/bin/bash
+  echo "Installing Jenkins war package..."
+  JENKINS_VERSION="2.332.3"
+  JENKINS_URL="https://get.jenkins.io/war-stable/${JENKINS_VERSION}/jenkins.war"
+  
+  # JENKINS_URL="https://get.jenkins.io/war-stable/2.332.3/jenkins.war"
+  
+  echo "Installing Jenkins dependencies..."
+  apt install openjdk-11-jre -y
+  # Check if Jenkins dir exists
+  if [ ! -d /opt/jenkins ]; then
+    mkdir /opt/jenkins
+  fi
+  # Check if file jenkins.war exists
+  if [ ! -f /opt/jenkins/jenkins.war ]; then
+    wget --directory-prefix=/opt/jenkins $JENKINS_URL
+  fi
+  if [ ! -d /opt/jenkins/plugins ]; then
+    mkdir /opt/jenkins/plugins
+  fi
+  if [ ! -f /vagrant/files/plugins.txt ]; then
+    echo "Make sure vagrant folder is mounted and/or the plugins.txt file exists."
+    exit
+  fi
+  
+  FILE=/vagrant/files/plugins.txt
+  PLUGINS=$(<$FILE)
+  for PLUGIN in $PLUGINS
+    do
+      echo Downloading $PLUGIN
+      HPI=`echo $PLUGIN | cut -d"." -f1`.hpi
+      JPI=`echo $PLUGIN | cut -d"." -f1`.jpi
+      PLUGIN_URL=https://updates.jenkins.io/latest/$HPI
+      curl -L $PLUGIN_URL --output /opt/jenkins/plugins/$JPI
+      # wget --directory-prefix=/opt/jenkins/plugins $PLUGIN_URL
+    done 
+  chown -R jenkins:jenkins /opt/jenkins
+  # export JENKINS_HOME=/opt/jenkins
+  # java -jar /opt/jenkins/jenkins.war --httpPort=8080
+  if [ ! -f /lib/systemd/system/jenkins.service ]; then
+    if [ ! -f /vagrant/files/jenkins.service ]; then
+      echo "Make sure vagrant folder is mounted and/or the jenkins.service file exists."
+      exit      
+    fi
+    cp /vagrant/files/jenkins.service /lib/systemd/system
+    systemctl daemon-reload
+    systemctl enable jenkins.service
+    systemctl start jenkins.service
+  fi
+SCRIPT
+
+$jenkins_setup_deb_package = <<SCRIPT
+#!/bin/bash
+  echo "Installing Jenkins Debian package..."
+  echo "Installing Jenkins dependencies..."
+  apt install openjdk-11-jre -y
+  curl -fsSL https://pkg.jenkins.io/debian-stable/jenkins.io.key | sudo tee \
+  /usr/share/keyrings/jenkins-keyring.asc > /dev/null
+  echo deb [signed-by=/usr/share/keyrings/jenkins-keyring.asc] \
+  https://pkg.jenkins.io/debian-stable binary/ | sudo tee \
+  /etc/apt/sources.list.d/jenkins.list > /dev/null
+  echo "Installing Jenkins..."
+  apt update && apt install jenkins -y
+SCRIPT
+
+Vagrant.configure("2") do |config|
+
+  config.vm.box = "ubuntu/focal64"
+  config.vm.define "CICD_server" do |jenkins|
+    jenkins.vm.hostname = "jenkins"
+    jenkins.vm.network "private_network", ip: "192.168.56.10"
+    jenkins.vm.provider "virtualbox" do |vb|
+      vb.cpus = 1
+      vb.memory = 1024
+    end
+
+    jenkins.vm.provision "shell", :inline => $os_packages_update
+    jenkins.vm.provision "shell", :inline => $user_setup
+    # jenkins.vm.provision "shell", :inline => $jenkins_setup_war_package
+    jenkins.vm.provision "shell", :inline => $jenkins_setup_deb_package
+    jenkins.vm.provision "shell", :inline => $docker_install
+  end
+
+  config.vm.define "Env_server" do |dk|
+    dk.vm.hostname = "docker"
+    dk.vm.network "private_network", ip: "192.168.56.20"
+    dk.vm.provider "virtualbox" do |vb|
+      vb.cpus = 1
+      vb.memory = 1024
+      
+    end
+    dk.vm.provision "shell", :inline => $os_packages_update
+    dk.vm.provision "shell", :inline => $docker_install
+    # dk.vm.provision "shell", :inline => $user_setup
+    
+  end
+end

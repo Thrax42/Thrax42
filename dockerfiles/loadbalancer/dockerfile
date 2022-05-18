@@ -1,0 +1,6 @@
+FROM ubuntu
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt update && apt upgrade -y
+RUN apt install nginx -y
+COPY files/nginx/lb/default /etc/nginx/sites-available/default
+ENTRYPOINT [ "nginx", "-g", "daemon off;" ]
