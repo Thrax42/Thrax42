@@ -1,7 +1,7 @@
 ### Hi there 👋
 
 <!--
-**Thrax42/Thrax42** is a ✨ _special_ ✨ repository because its `README.md` (this file) appears on your GitHub profile.
+**Thrax42/Thrax42** is a ✨ _noob_ ✨ repository because its `README.md` (this file) appears on your GitHub profile.
 
 Here are some ideas to get you started:
 
